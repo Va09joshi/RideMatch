@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// Import your actual screens
+// Screens
 import 'package:ridematch/views/home/Screens/homeScreen.dart';
 import 'package:ridematch/views/post/Screens/postScreen.dart';
-
 import 'package:ridematch/views/profile/Screen/profileScreen.dart';
 import 'package:ridematch/views/ride/rideScreen.dart';
-import 'package:ridematch/views/ride_detail/ridedetails.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -16,97 +14,109 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
-    with SingleTickerProviderStateMixin {
+class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
+  Map<String, dynamic>? bookedRide; // Add this
 
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    RideScreen(),
-    PostScreen(),
-    ProfileScreen(),
-  ];
+  late List<Widget> _screens;
+
+  @override
+  void initState() {
+    super.initState();
+    _screens = [
+      HomeScreen(bookedRide: bookedRide), // Pass bookedRide
+      const RideScreen(),
+      const PostScreen(),
+      const ProfileScreen(),
+    ];
+  }
+
+  void updateBookedRide(Map<String, dynamic> ride) {
+    setState(() {
+      bookedRide = ride;
+      _screens[0] = HomeScreen(bookedRide: bookedRide);
+      _currentIndex = 0; // Switch to Home tab
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
-      body: _screens[_currentIndex],
+    final double itemWidth = MediaQuery.of(context).size.width / 4;
 
-      /// ✅ Custom Animated Bottom Navigation Bar
-      bottomNavigationBar: AnimatedContainer(
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeOutCubic,
-        margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        decoration: BoxDecoration(
-          color: const Color(0xff113F67),
-          borderRadius: BorderRadius.circular(15),
+    return Scaffold(
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: _screens[_currentIndex],
+      ),
+      bottomNavigationBar: Container(
+        height: 80,
+        decoration: const BoxDecoration(
+          color: Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.7),
-              blurRadius: 8,
-              offset: const Offset(0, 5),
+              color: Colors.black12,
+              blurRadius: 10,
+              offset: Offset(0, -2),
             ),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(Icons.home_rounded, "Home", 0),
-              _buildNavItem(Icons.directions_car_rounded, "Ride", 1),
-              _buildNavItem(Icons.post_add_rounded, "Post", 2),
-              _buildNavItem(Icons.person_rounded, "Profile", 3),
-            ],
-          ),
+        child: Stack(
+          alignment: Alignment.bottomCenter,
+          children: [
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOut,
+              bottom: 12,
+              left: _currentIndex * itemWidth + (itemWidth / 2) - 30,
+              child: Container(
+                width: 60,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Color(0xff4A70A9),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                buildNavItem(Icons.home_rounded, "Home", 0),
+                buildNavItem(Icons.directions_car_rounded, "Ride", 1),
+                buildNavItem(Icons.post_add_rounded, "Post", 2),
+                buildNavItem(Icons.person_rounded, "Profile", 3),
+              ],
+            ),
+          ],
         ),
       ),
     );
   }
 
-  /// 🔹 Single Navigation Item Widget
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    bool isSelected = _currentIndex == index;
+  Widget buildNavItem(IconData icon, String label, int index) {
+    bool active = _currentIndex == index;
 
-    return GestureDetector(
-      onTap: () {
-        setState(() => _currentIndex = index);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutBack,
-        padding: EdgeInsets.symmetric(
-          vertical: 15,
-          horizontal: isSelected ? 20 : 12,
-        ),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white.withOpacity(0.2) : Colors.transparent,
-          borderRadius: BorderRadius.circular(50),
-        ),
-        child: Row(
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _currentIndex = index),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              size: 24,
-              color: Colors.white,
+              size: 26,
+              color: active ? const Color(0xff4A70A9) : const Color(0xff9BB4C0),
             ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeInOut,
-              child: isSelected
-                  ? Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Text(
-                  label,
-                  style: GoogleFonts.dmSans(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
+            const SizedBox(height: 3),
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: active ? 1 : 0,
+              child: Text(
+                label,
+                style: GoogleFonts.dmSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xff4A70A9),
                 ),
-              )
-                  : const SizedBox.shrink(),
+              ),
             ),
           ],
         ),

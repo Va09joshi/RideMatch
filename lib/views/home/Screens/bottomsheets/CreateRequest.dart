@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
-import 'package:ridematch/views/profile/cards/myrides.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CreateLocationRequestScreen extends StatefulWidget {
-  const CreateLocationRequestScreen({super.key});
+  final String rideId;
+
+  const CreateLocationRequestScreen({super.key, required this.rideId});
 
   @override
   State<CreateLocationRequestScreen> createState() =>
@@ -17,38 +19,83 @@ class CreateLocationRequestScreen extends StatefulWidget {
 class _CreateLocationRequestScreenState
     extends State<CreateLocationRequestScreen> {
   final _formKey = GlobalKey<FormState>();
-
   final TextEditingController fromController = TextEditingController();
   final TextEditingController toController = TextEditingController();
   final TextEditingController noteController = TextEditingController();
 
   DateTime? selectedDate;
   TimeOfDay? selectedTime;
+  Position? currentPosition;
   bool isLoading = false;
 
-  // 🌍 Get current location
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+  }
+
+  // 🌍 Get current location and reverse geocode to address
   Future<void> _getCurrentLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Location services are disabled."),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
 
-    LocationPermission permission = await Geolocator.requestPermission();
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) return;
+      LocationPermission permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Location permission denied."),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
 
-    Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high);
+      Position position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
 
-    setState(() {
-      fromController.text =
-      "Current Location (${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)})";
-    });
+      String address = await _getAddressFromPosition(position);
+
+      setState(() {
+        currentPosition = position;
+        fromController.text = address;
+      });
+    } catch (e) {
+      print("Error getting location: $e");
+    }
+  }
+
+  // 🔄 Reverse geocoding helper
+  Future<String> _getAddressFromPosition(Position position) async {
+    try {
+      List<Placemark> placemarks =
+      await placemarkFromCoordinates(position.latitude, position.longitude);
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        return "${place.street}, ${place.locality}, ${place.postalCode}, ${place.country}";
+      }
+    } catch (e) {
+      print("Reverse geocoding failed: $e");
+    }
+    return "Current Location";
   }
 
   // 📅 Date Picker
   Future<void> _selectDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: selectedDate ?? DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime(2030),
     );
@@ -62,15 +109,17 @@ class _CreateLocationRequestScreenState
     if (picked != null) setState(() => selectedTime = picked);
   }
 
-  // 📤 Submit request
-  // 📤 Submit Ride Creation Request
+  // 📤 Submit Ride Request
   Future<void> _createRequest() async {
     if (!_formKey.currentState!.validate()) return;
-    if (selectedDate == null || selectedTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text("Please select both date and time."),
-        backgroundColor: Colors.redAccent,
-      ));
+    if (currentPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("⚠️ Unable to get current location!"),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
       return;
     }
 
@@ -78,100 +127,154 @@ class _CreateLocationRequestScreenState
 
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? token = prefs.getString('token');
-      String? userId = prefs.getString('userId');
+      String? token = prefs.getString("token");
+      String? userId = prefs.getString("userId");
 
-      // ✅ Get current position
-      Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+      if (token == null || userId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("⚠️ User not logged in!"),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        setState(() => isLoading = false);
+        return;
+      }
 
-      final rideData = {
-        "driverId": userId,
-        "from": fromController.text.trim(),
+      // Ensure pickup address is human-readable
+      String pickupAddress = fromController.text.trim();
+      if (pickupAddress.isEmpty || pickupAddress == "Current Location") {
+        pickupAddress = await _getAddressFromPosition(currentPosition!);
+      }
+
+      // Format date & time for backend
+      String formattedDate = selectedDate != null
+          ? "${selectedDate!.year.toString().padLeft(4, '0')}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}"
+          : "${DateTime.now().year.toString().padLeft(4, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}";
+
+      String formattedTime = selectedTime != null
+          ? "${selectedTime!.hour.toString().padLeft(2, '0')}:${selectedTime!.minute.toString().padLeft(2, '0')}"
+          : "${TimeOfDay.now().hour.toString().padLeft(2, '0')}:${TimeOfDay.now().minute.toString().padLeft(2, '0')}";
+
+      final body = {
+        "userId": userId,
+        "from": pickupAddress,
         "to": toController.text.trim(),
-        "date":
-        "${selectedDate!.year}-${selectedDate!.month}-${selectedDate!.day}",
-        "time": "${selectedTime!.hour}:${selectedTime!.minute}",
-        "availableSeats": 3, // You can replace with a user input later
-        "amount": 150, // Temporary fixed, can be dynamic later
-        "carDetails": {
-          "name": "Honda City",
-          "number": "MP09AB1234",
-          "color": "White",
-        },
+        "note": noteController.text.trim(),
+        "date": formattedDate,
+        "time": formattedTime,
         "location": {
           "type": "Point",
-          "coordinates": [position.longitude, position.latitude],
+          "coordinates": [currentPosition!.longitude, currentPosition!.latitude]
         },
       };
 
+      print("DEBUG: Request Body -> ${json.encode(body)}"); // Debug
+
       final response = await http.post(
-        Uri.parse("http://192.168.29.206:5000/api/rides"),
+        Uri.parse(
+            "http://192.168.29.206:5000/api/rides/${widget.rideId}/request"),
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer $token",
         },
-        body: json.encode(rideData),
+        body: json.encode(body),
       );
 
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("✅ Ride created successfully!"),
-          backgroundColor: Colors.green,
-        ));
+      print("DEBUG: Response Status -> ${response.statusCode}");
+      print("DEBUG: Response Body -> ${response.body}");
 
-        // ⏳ Small delay before navigation
-        await Future.delayed(const Duration(seconds: 1));
-
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const MyRidesScreen()),
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("❌ Failed to create ride: ${response.body}"),
-          backgroundColor: Colors.redAccent,
-        ));
+      Map<String, dynamic> responseData;
+      try {
+        responseData = jsonDecode(response.body);
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("⚠️ Invalid server response"),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+        return;
       }
+
+      if ((response.statusCode == 200 || response.statusCode == 201) &&
+          responseData['success'] == true) {
+
+        // Check if backend says already requested
+        if (responseData['message']?.toString().toLowerCase().contains("already requested") ?? false) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("⚠️ You have already requested this ride"),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        } else if (responseData['request'] != null) {
+          final request = responseData['request'];
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "✅ Ride Request Sent!",
+                style: TextStyle(color: Colors.black),
+              ),
+              backgroundColor: Colors.white,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          Navigator.pop(context, request);
+        }
+
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "❌ ${responseData['message'] ?? 'Failed to create request'}",
+              style: const TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("⚠️ Error: $e")),
+        SnackBar(
+          content: Text("⚠️ Error: $e"),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
       );
     } finally {
       setState(() => isLoading = false);
     }
   }
 
-
-  // 🧱 Reusable Input Field
+  // 🧱 Reusable TextField
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
     required IconData icon,
-    TextInputType? type,
     String? Function(String?)? validator,
     Widget? suffix,
   }) {
     return TextFormField(
       controller: controller,
-      keyboardType: type,
       validator: validator,
-      style: GoogleFonts.dmSans(fontSize: 15),
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: const Color(0xff113F67)),
         suffixIcon: suffix,
         filled: true,
         fillColor: Colors.white,
-        contentPadding:
-        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
         ),
       ),
+      style: GoogleFonts.dmSans(fontSize: 15),
     );
   }
 
@@ -180,10 +283,9 @@ class _CreateLocationRequestScreenState
     return Scaffold(
       backgroundColor: const Color(0xffF7F9FB),
       appBar: AppBar(
-        shadowColor: Colors.black,
-        elevation: 4,
         backgroundColor: const Color(0xff113F67),
-        title: Text("Request", style: GoogleFonts.dmSans(color: Colors.white)),
+        title: Text("Request Ride",
+            style: GoogleFonts.dmSans(color: Colors.white)),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -197,11 +299,9 @@ class _CreateLocationRequestScreenState
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
+                  boxShadow: const [
                     BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 10,
-                        offset: const Offset(0, 4))
+                        color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))
                   ],
                 ),
                 child: Column(
@@ -213,7 +313,6 @@ class _CreateLocationRequestScreenState
                             fontWeight: FontWeight.w600,
                             color: const Color(0xff113F67))),
                     const SizedBox(height: 16),
-
                     _buildTextField(
                       controller: fromController,
                       label: "From (Pickup)",
@@ -226,7 +325,6 @@ class _CreateLocationRequestScreenState
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     _buildTextField(
                       controller: toController,
                       label: "To (Destination)",
@@ -235,16 +333,14 @@ class _CreateLocationRequestScreenState
                       v!.isEmpty ? "Enter destination" : null,
                     ),
                     const SizedBox(height: 16),
-
                     GestureDetector(
                       onTap: _selectDate,
                       child: AbsorbPointer(
                         child: _buildTextField(
                           controller: TextEditingController(
-                            text: selectedDate == null
-                                ? ""
-                                : "${selectedDate!.day}-${selectedDate!.month}-${selectedDate!.year}",
-                          ),
+                              text: selectedDate == null
+                                  ? ""
+                                  : "${selectedDate!.day}-${selectedDate!.month}-${selectedDate!.year}"),
                           label: "Select Date",
                           icon: Icons.calendar_today,
                           validator: (v) =>
@@ -253,16 +349,14 @@ class _CreateLocationRequestScreenState
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     GestureDetector(
                       onTap: _selectTime,
                       child: AbsorbPointer(
                         child: _buildTextField(
                           controller: TextEditingController(
-                            text: selectedTime == null
-                                ? ""
-                                : selectedTime!.format(context),
-                          ),
+                              text: selectedTime == null
+                                  ? ""
+                                  : selectedTime!.format(context)),
                           label: "Select Time",
                           icon: Icons.access_time,
                           validator: (v) =>
@@ -271,31 +365,25 @@ class _CreateLocationRequestScreenState
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     _buildTextField(
                       controller: noteController,
                       label: "Note / Purpose",
                       icon: Icons.comment_outlined,
                       validator: (v) =>
                       v!.isEmpty ? "Enter short note" : null,
-                      type: TextInputType.text,
                     ),
                   ],
                 ),
               ),
-
               const SizedBox(height: 30),
-
-              // 🔹 Submit Button
               SizedBox(
                 width: double.infinity,
                 height: 55,
                 child: ElevatedButton.icon(
-                  icon: const Icon(Icons.send_rounded,
-                      size: 22, color: Colors.white),
+                  icon: const Icon(Icons.send_rounded, color: Colors.white),
                   onPressed: isLoading ? null : _createRequest,
                   label: Text(
-                    isLoading ? "Posting..." : "Post",
+                    isLoading ? "Posting..." : "Post Request",
                     style: GoogleFonts.dmSans(
                         fontSize: 17,
                         fontWeight: FontWeight.w600,
@@ -304,7 +392,8 @@ class _CreateLocationRequestScreenState
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xff113F67),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
               ),

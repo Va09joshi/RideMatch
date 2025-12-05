@@ -11,27 +11,24 @@ class VerifiedDoc extends StatefulWidget {
 }
 
 class _VerifiedDocState extends State<VerifiedDoc> {
-  TextEditingController drivingController = TextEditingController();
-  TextEditingController aadharController = TextEditingController();
-
-  File? drivingFile;
   File? aadharFile;
+  File? drivingFile;
 
-  bool submitDrivingText = true;
-  bool submitAadharText = true;
+  final TextEditingController aadharController = TextEditingController();
+  final TextEditingController drivingController = TextEditingController();
 
   Future<void> pickFile(String type) async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
+      allowedExtensions: ['jpg', 'png', 'jpeg', 'pdf'],
       type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
     );
 
-    if (result != null && result.files.single.path != null) {
+    if (result != null) {
       setState(() {
-        if (type == 'driving') {
-          drivingFile = File(result.files.single.path!);
-        } else {
+        if (type == "aadhar") {
           aadharFile = File(result.files.single.path!);
+        } else {
+          drivingFile = File(result.files.single.path!);
         }
       });
     }
@@ -40,194 +37,274 @@ class _VerifiedDocState extends State<VerifiedDoc> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xfff0f2f5),
+      backgroundColor: Colors.white.withOpacity(0.93),
       appBar: AppBar(
-        backgroundColor: const Color(0xff113F67),
+        backgroundColor: Color(0xff113F67),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: Text(
-          "Verified Documents",
+          "Document Verification",
           style: GoogleFonts.dmSans(
-              fontWeight: FontWeight.w600, fontSize: 20,color: Colors.white),
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
         ),
         centerTitle: true,
-        elevation: 2,
       ),
+
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildDocumentCard(
-              title: "Driving License",
-              controller: drivingController,
-              file: drivingFile,
-              onPick: () => pickFile('driving'),
-              icon: Icons.drive_eta_rounded,
-              submitTextOnly: submitDrivingText,
-              onToggleSubmitText: (val) {
-                setState(() => submitDrivingText = val);
-              },
-              hintText: "Enter Driving License Number",
-              color: Color(0xffAAC4F5),
+            const SizedBox(height: 10),
+            Text(
+              "Required Documents",
+              style: GoogleFonts.dmSans(
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+              ),
             ),
-            const SizedBox(height: 20),
-            _buildDocumentCard(
+            Text(
+              "Please upload the following documents to complete your verification",
+              style: GoogleFonts.dmSans(
+                fontSize: 13,
+                color: Colors.black54,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // AADHAR CARD
+            docTile(
+              icon: Icons.account_balance_rounded,
               title: "Aadhar Card",
-              controller: aadharController,
-              file: aadharFile,
-              onPick: () => pickFile('aadhar'),
-              icon: Icons.credit_card_rounded,
-              submitTextOnly: submitAadharText,
-              onToggleSubmitText: (val) {
-                setState(() => submitAadharText = val);
-              },
-              hintText: "Enter Aadhar Number",
-              color: Color(0xffAAC4F5),
-            ),
-            const SizedBox(height: 30),
-            ElevatedButton.icon(
-              onPressed: () {
-                if ((drivingController.text.isEmpty && drivingFile == null) ||
-                    (aadharController.text.isEmpty && aadharFile == null)) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text(
-                            "Please fill text or upload file for each document")),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text("Documents Submitted Successfully")),
-                  );
-                }
-              },
-              icon: const Icon(Icons.upload_file_rounded,color: Colors.white,),
-              label: Text(
-                "Submit Documents",
-                style: GoogleFonts.dmSans(
-                    fontSize: 16, fontWeight: FontWeight.w600,color: Colors.white),
+              status: aadharFile != null ? "Uploaded" : "Upload Now",
+              statusColor: aadharFile != null ? Colors.green : Colors.blue,
+              onTap: () => pickFile("aadhar"),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 12),
+                  Text(
+                    "Aadhar Number",
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: aadharController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: "Enter Aadhar Number",
+                      filled: true,
+                      fillColor: Colors.grey.shade100,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // SUBMIT ONLY AADHAR
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        print("Aadhar Submitted:");
+                        print("Number: ${aadharController.text}");
+                        print("File: ${aadharFile?.path}");
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Color(0xff113F67),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child:  Text("Submit Aadhar",style: GoogleFonts.dmSans(color: Colors.white,fontWeight: FontWeight.bold),),
+                    ),
+                  ),
+                ],
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xff113F67),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 5,
+            ),
+
+            const SizedBox(height: 12),
+
+            // DRIVING LICENSE
+            docTile(
+              icon: Icons.directions_car_rounded,
+              title: "Driving License",
+              status: drivingFile != null ? "Uploaded" : "Upload Now",
+              statusColor: drivingFile != null ? Colors.green : Colors.blue,
+              onTap: () => pickFile("driving"),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 12),
+                  Text(
+                    "License Number",
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: drivingController,
+                    decoration: InputDecoration(
+                      hintText: "Enter License Number",
+                      filled: true,
+                      fillColor: Colors.grey.shade100,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // SUBMIT ONLY DRIVING LICENSE
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        print("Driving License Submitted:");
+                        print("Number: ${drivingController.text}");
+                        print("File: ${drivingFile?.path}");
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Color(0xff113F67),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child:  Text("Submit Driving License",style: GoogleFonts.dmSans(color: Colors.white,fontWeight: FontWeight.bold),),
+                    ),
+                  ),
+                ],
               ),
             ),
+
+
+
+            // SUBMIT ALL
+
           ],
         ),
       ),
     );
   }
 
-  Widget _buildDocumentCard({
-    required String title,
-    required TextEditingController controller,
-    required File? file,
-    required VoidCallback onPick,
+  // DOCUMENT TILE WIDGET
+  Widget docTile({
     required IconData icon,
-    required bool submitTextOnly,
-    required Function(bool) onToggleSubmitText,
-    required String hintText,
-    required Color color,
+    required String title,
+    required String status,
+    required Color statusColor,
+    required VoidCallback onTap,
+    Widget? child,
+    String? subtitle,
   }) {
     return Container(
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black12.withOpacity(0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            blurRadius: 10,
+            color: Colors.black.withOpacity(0.05),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Icon(icon, color: Color(0xff0C2B4E)),
+                radius: 22,
+                backgroundColor: Colors.grey.shade200,
+                child: Icon(icon, color: Colors.black87),
               ),
-              const SizedBox(width: 12),
-              Text(
-                title,
-                style: GoogleFonts.dmSans(
-                    fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: controller,
-            enabled: submitTextOnly,
-            decoration: InputDecoration(
-              hintText: hintText,
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14)),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(
-                  color: Colors.black45
+              const SizedBox(width: 16),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.dmSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    if (subtitle != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          subtitle,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(14)
               ),
-              contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-              prefixIcon: Icon(icon, color: Colors.black87, size: 22),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              ElevatedButton.icon(
-                onPressed: onPick,
-                icon: const Icon(Icons.upload_file_rounded, size: 18,color: Colors.white,),
-                label: Text(file == null ? "Upload File" : "Change File",
-                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w500,color: Colors.white)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xff113F67),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 12),
-                  shape: RoundedRectangleBorder(
+
+              GestureDetector(
+                onTap: onTap,
+                child: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: Colors.white),
                   ),
-                  elevation: 0,
+                  child: Row(
+                    children: [
+                      Text(
+                        status,
+                        style: GoogleFonts.dmSans(
+                          color: statusColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        status == "Upload Now"
+                            ? Icons.upload_rounded
+                            : Icons.check_circle_rounded,
+                        size: 18,
+                        color: statusColor,
+                      )
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              if (file != null)
-                Flexible(
-                  child: Text(
-                    "File Selected",
-                    style: GoogleFonts.dmSans(
-                        color: Colors.green, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              const Spacer(),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    "Submit as Text Only",
-                    style:
-                    GoogleFonts.dmSans(fontSize: 12, color: Colors.black54),
-                  ),
-                  Switch(
-                    value: submitTextOnly,
-                    onChanged: onToggleSubmitText,
-                    activeColor: const Color(0xff113F67),
-                  ),
-                ],
               ),
             ],
           ),
+
+          if (child != null) child,
         ],
       ),
     );

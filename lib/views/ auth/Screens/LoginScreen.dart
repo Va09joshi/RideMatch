@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
-import 'package:ridematch/utils/images.dart';
-import 'package:ridematch/views/%20auth/Screens/SignupScreen.dart';
+import 'package:ridematch/services/API.dart';
+import 'package:ridematch/views/%20auth/Screens/forgetpassword.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ridematch/views/%20auth/Screens/SignupScreen.dart';
+import 'package:ridematch/utils/images.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,7 +27,6 @@ class _LoginScreenState extends State<LoginScreen>
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
 
-  // ⚙️ Your backend API URL
   final String apiUrl = "http://192.168.29.206:5000/api/auth/login";
 
   @override
@@ -60,15 +61,30 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
+  // 🔑 Load saved email & password
   Future<void> _loadRememberedUser() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
       _rememberMe = prefs.getBool('rememberMe') ?? false;
       if (_rememberMe) {
-        _usernameController.text = prefs.getString('username') ?? '';
+        _usernameController.text = prefs.getString('email') ?? '';
         _passwordController.text = prefs.getString('password') ?? '';
       }
     });
+  }
+
+  // 🔑 Save email & password if "Remember Me" is checked
+  Future<void> _saveUserCredentials(String email, String password) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (_rememberMe) {
+      await prefs.setString('email', email);
+      await prefs.setString('password', password);
+      await prefs.setBool('rememberMe', true);
+    } else {
+      await prefs.remove('email');
+      await prefs.remove('password');
+      await prefs.setBool('rememberMe', false);
+    }
   }
 
   Future<void> loginUser() async {
@@ -105,12 +121,16 @@ class _LoginScreenState extends State<LoginScreen>
         await prefs.setString('userEmail', data['user']['email']);
 
         if (_rememberMe) {
+          await prefs.setString('email', username);
           await prefs.setString('password', password);
           await prefs.setBool('rememberMe', true);
         } else {
+          await prefs.remove('email');
           await prefs.remove('password');
           await prefs.setBool('rememberMe', false);
         }
+
+
 
         Navigator.pushReplacementNamed(context, '/home');
       } else {
@@ -123,11 +143,60 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.dmSans()),
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+    bool obscureText = false,
+    Widget? suffix,
+  }) {
+    return Focus(
+      onFocusChange: (hasFocus) => setState(() {}),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(
+            color: controller.text.isNotEmpty
+                ? const Color(0xff0A2647).withOpacity(0.7)
+                : Colors.grey.shade300,
+            width: 1.2,
+          ),
+          boxShadow: controller.text.isNotEmpty
+              ? [
+            BoxShadow(
+              color: const Color(0xff0A2647).withOpacity(0.15),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ]
+              : [],
+        ),
+        child: TextField(
+          controller: controller,
+          obscureText: obscureText,
+          style: GoogleFonts.dmSans(color: Colors.black87),
+          decoration: InputDecoration(
+            prefixIcon: Icon(icon, color: Colors.grey[600]),
+            suffixIcon: suffix,
+            hintText: hintText,
+            hintStyle: GoogleFonts.dmSans(color: Colors.grey[500]),
+            border: InputBorder.none,
+            contentPadding:
+            const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+          ),
+        ),
       ),
     );
   }
@@ -168,8 +237,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ),
                         const SizedBox(height: 35),
-
-                        // 💎 Frosted glass login card
+                        // Frosted glass login card
                         Container(
                           padding: const EdgeInsets.all(25),
                           decoration: BoxDecoration(
@@ -205,14 +273,12 @@ class _LoginScreenState extends State<LoginScreen>
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 30),
-
                               _buildTextField(
                                 controller: _usernameController,
                                 hintText: "Email",
                                 icon: Icons.email_outlined,
                               ),
                               const SizedBox(height: 18),
-
                               _buildTextField(
                                 controller: _passwordController,
                                 hintText: "Password",
@@ -233,7 +299,6 @@ class _LoginScreenState extends State<LoginScreen>
                                 ),
                               ),
                               const SizedBox(height: 12),
-
                               Row(
                                 mainAxisAlignment:
                                 MainAxisAlignment.spaceBetween,
@@ -247,7 +312,7 @@ class _LoginScreenState extends State<LoginScreen>
                                             _rememberMe = value ?? false;
                                           });
                                         },
-                                        activeColor: const Color(0xffF15A29),
+                                        activeColor: const Color(0xff4A70A9),
                                       ),
                                       Text(
                                         "Remember Me",
@@ -259,7 +324,12 @@ class _LoginScreenState extends State<LoginScreen>
                                     ],
                                   ),
                                   TextButton(
-                                    onPressed: () {},
+                                    onPressed: () {
+
+                                      Navigator.push(context, MaterialPageRoute(builder: (_){
+                                        return ForgetPasswordScreen();
+                                      }));
+                                    },
                                     child: Text(
                                       "Forgot Password?",
                                       style: GoogleFonts.dmSans(
@@ -271,7 +341,6 @@ class _LoginScreenState extends State<LoginScreen>
                                 ],
                               ),
                               const SizedBox(height: 25),
-
                               GestureDetector(
                                 onTap: loginUser,
                                 child: AnimatedContainer(
@@ -280,8 +349,8 @@ class _LoginScreenState extends State<LoginScreen>
                                   decoration: BoxDecoration(
                                     gradient: const LinearGradient(
                                       colors: [
-                                        Color(0xffF15A29),
-                                        Color(0xffF78145)
+                                        Color(0xff0A2647),
+                                        Color(0xff1A3D64)
                                       ],
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
@@ -289,7 +358,7 @@ class _LoginScreenState extends State<LoginScreen>
                                     borderRadius: BorderRadius.circular(15),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xffF15A29)
+                                        color: const Color(0xff0A2647)
                                             .withOpacity(0.4),
                                         blurRadius: 12,
                                         offset: const Offset(0, 5),
@@ -311,7 +380,6 @@ class _LoginScreenState extends State<LoginScreen>
                                 ),
                               ),
                               const SizedBox(height: 20),
-
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -360,54 +428,6 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String hintText,
-    required IconData icon,
-    bool obscureText = false,
-    Widget? suffix,
-  }) {
-    return Focus(
-      onFocusChange: (hasFocus) => setState(() {}),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(
-            color: controller.text.isNotEmpty
-                ? const Color(0xffF15A29).withOpacity(0.7)
-                : Colors.grey.shade300,
-            width: 1.2,
-          ),
-          boxShadow: controller.text.isNotEmpty
-              ? [
-            BoxShadow(
-              color: const Color(0xffF15A29).withOpacity(0.15),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ]
-              : [],
-        ),
-        child: TextField(
-          controller: controller,
-          obscureText: obscureText,
-          style: GoogleFonts.dmSans(color: Colors.black87),
-          decoration: InputDecoration(
-            prefixIcon: Icon(icon, color: Colors.grey[600]),
-            suffixIcon: suffix,
-            hintText: hintText,
-            hintStyle: GoogleFonts.dmSans(color: Colors.grey[500]),
-            border: InputBorder.none,
-            contentPadding:
-            const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-          ),
-        ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:ridematch/services/API.dart';
 import 'package:ridematch/utils/images.dart';
 import 'dart:convert';
 
@@ -25,7 +26,7 @@ class _SignUpScreenState extends State<SignUpScreen>
   late Animation<double> _fadeAnimation;
 
   // final String apiUrl = "http://10.0.2.2:5000/api/auth/register";
-  final String apiUrl = "http://192.168.29.206:5000/api/auth/register";  // for signup
+  final String apiUrl = "$baseurl/api/auth/register";  // for signup
 
   @override
   void initState() {
@@ -231,14 +232,14 @@ class _SignUpScreenState extends State<SignUpScreen>
                                   height: 50,
                                   decoration: BoxDecoration(
                                     gradient: const LinearGradient(
-                                      colors: [Color(0xffF15A29), Color(0xffF78145)],
+                                      colors: [Color(0xff1A2A4F), Color(0xff1A3D64)],
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
                                     ),
                                     borderRadius: BorderRadius.circular(15),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xffF15A29).withOpacity(0.4),
+                                        color: const Color(0xff0A2647).withOpacity(0.4),
                                         blurRadius: 12,
                                         offset: const Offset(0, 5),
                                       ),
@@ -330,14 +331,14 @@ class _SignUpScreenState extends State<SignUpScreen>
           borderRadius: BorderRadius.circular(15),
           border: Border.all(
             color: controller.text.isNotEmpty
-                ? const Color(0xffF15A29).withOpacity(0.7)
+                ? const Color(0xff0A2647).withOpacity(0.7)
                 : Colors.grey.shade300,
             width: 1.2,
           ),
           boxShadow: controller.text.isNotEmpty
               ? [
             BoxShadow(
-              color: const Color(0xffF15A29).withOpacity(0.15),
+              color: const Color(0xff0A2647).withOpacity(0.15),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),

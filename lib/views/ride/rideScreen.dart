@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_rating_bar/flutter_rating_bar.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ridematch/views/ride_detail/ridedetails.dart';
 
 class RideScreen extends StatefulWidget {
@@ -12,257 +14,340 @@ class RideScreen extends StatefulWidget {
 }
 
 class _RideScreenState extends State<RideScreen> {
+  List<Map<String, dynamic>> nearbyRides = [];
+  List<Map<String, dynamic>> myRides = [];
+  bool loading = true;
+  String? currentUserId;
 
-
-  final List<Map<String, dynamic>> rides = [
-    {
-      "from": "Indore",
-      "to": "Bhopal",
-      "date": "27 Oct 2025",
-      "time": "10:30 AM",
-      "seats": 3,
-      "amount": 250,
-      "carName": "Hyundai i20",
-      "carNumber": "MP09AB1234",
-      "carColor": "White",
-      "rating": 4.5,
-      "driver": "Rahul Sharma",
-      "driverImage":
-      "https://i.pravatar.cc/150?img=47",
-    },
-    {
-      "from": "Dewas",
-      "to": "Indore",
-      "date": "28 Oct 2025",
-      "time": "6:00 PM",
-      "seats": 2,
-      "amount": 180,
-      "carName": "Maruti Baleno",
-      "carNumber": "MP41XY7890",
-      "carColor": "Blue",
-      "rating": 4.8,
-      "driver": "Priya Verma",
-      "driverImage":
-      "https://i.pravatar.cc/150?img=12",
-    },
-  ];
+  static const baseUrl = "http://192.168.29.206:5000/api";
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xfff8f9fd),
-      appBar: AppBar(
-        backgroundColor: const Color(0xff113F67),
-        title: Text(
-          "Nearby Rides",
-          style: GoogleFonts.lato(
-              fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+  void initState() {
+    super.initState();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    currentUserId = prefs.getString('userId');
+
+    if (currentUserId == null || currentUserId == "null" || currentUserId!.trim().isEmpty) {
+      currentUserId = null;
+    }
+
+    await _fetchRides();
+  }
+
+  /// Helper: parse rides safely
+  List<Map<String, dynamic>> parseRides(dynamic data) {
+    if (data == null) return [];
+    if (data is List) return List<Map<String, dynamic>>.from(data);
+    if (data is Map) return [Map<String, dynamic>.from(data)];
+    return [];
+  }
+
+  Future<void> _fetchRides() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() => loading = false);
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      Position position = await Geolocator.getCurrentPosition();
+
+      // 1️⃣ My Rides
+      if (currentUserId != null) {
+        final myResponse = await http.get(Uri.parse("$baseUrl/rides/user/$currentUserId"));
+        if (myResponse.statusCode == 200) {
+          final myData = jsonDecode(myResponse.body);
+          myRides = parseRides(myData['rides']);
+        }
+      }
+
+      // 2️⃣ Nearby Rides
+      final nearbyResponse = await http.get(
+        Uri.parse("$baseUrl/rides?excludeUserId=$currentUserId"),
+      );
+
+      if (nearbyResponse.statusCode == 200) {
+        final nearbyData = jsonDecode(nearbyResponse.body);
+        nearbyRides = parseRides(nearbyData['rides'] ?? nearbyData['data']);
+
+        // Sort by newest first
+        nearbyRides.sort((a, b) {
+          final aDateTime = DateTime.tryParse("${a['date']} ${a['time']}") ?? DateTime.now();
+          final bDateTime = DateTime.tryParse("${b['date']} ${b['time']}") ?? DateTime.now();
+          return bDateTime.compareTo(aDateTime);
+        });
+      }
+
+      setState(() => loading = false);
+    } catch (e) {
+      debugPrint("❌ Ride Fetch Error: $e");
+      setState(() => loading = false);
+    }
+  }
+
+  void _goToRideDetails(Map<String, dynamic> ride) {
+    if (currentUserId == null) return;
+
+    // Ensure defaults are set before passing
+    Map<String, dynamic> rideWithDefaults = {
+      ...ride,
+      'carDetails': {
+        'name': ride['carDetails']?['name'] ?? 'Car',
+        'number': ride['carDetails']?['number'] ?? 'XXX-000',
+        'color': ride['carDetails']?['color'] ?? 'Black',
+      },
+      'driverImage': ride['driverImage'] != null && ride['driverImage'].isNotEmpty
+          ? ride['driverImage']
+          : 'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png',
+      'driverName': ride['driverName'] ?? 'Driver',
+      'rating': ride['rating'] ?? 0.0,
+    };
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RideDetailsScreen(
+          rideData: rideWithDefaults,
+          currentUserId: currentUserId!,
         ),
-        elevation: 0,
-        centerTitle: true,
-      ),
-      body: ListView.builder(
-        itemCount: rides.length,
-        padding: const EdgeInsets.all(16),
-        itemBuilder: (context, index) {
-          final ride = rides[index];
-          return Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12.withOpacity(0.08),
-                  blurRadius: 12,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 5),
-                )
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundImage: NetworkImage(ride["driverImage"]),
-                        radius: 28,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              ride["driver"],
-                              style: GoogleFonts.dmSans(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xff09205f),
-                              ),
-                            ),
-                            RatingBarIndicator(
-                              rating: ride["rating"],
-                              itemBuilder: (context, _) => const Icon(
-                                Icons.star,
-                                color: Colors.amber,
-                              ),
-                              itemCount: 5,
-                              itemSize: 18,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xffe8f0fe),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          "₹${ride["amount"]}",
-                          style: GoogleFonts.dmSans(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.pinkAccent),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Divider(color: Colors.grey[300]),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Icon(Icons.location_on, color: Colors.green, size: 22),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          ride["from"],
-                          style: GoogleFonts.dmSans(
-                              fontSize: 16, fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                      const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          ride["to"],
-                          style: GoogleFonts.dmSans(
-                              fontSize: 16, fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _infoChip(Icons.calendar_today, ride["date"]),
-                      _infoChip(Icons.access_time, ride["time"]),
-                      _infoChip(Icons.airline_seat_recline_normal,
-                          "${ride["seats"]} seats"),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xfff5f6ff),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.directions_car,
-                            color: Color(0xff09205f)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            "${ride["carName"]} • ${ride["carColor"]}\n${ride["carNumber"]}",
-                            style: GoogleFonts.dmSans(
-                                fontSize: 14, color: Colors.black87),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        // ScaffoldMessenger.of(context).showSnackBar(
-                        //   SnackBar(
-                        //     content:
-                        //     Text("Request sent to ${ride["driver"]} 🚗"),
-                        //     backgroundColor: const Color(0xff09205f),
-                        //   ),
-                        // );
-
-                        Navigator.push(context,MaterialPageRoute(builder: (_){
-                          return RideDetailsScreen(rideData:
-                           {
-                          "pickupLocation": LatLng(28.6139, 77.2090), // Delhi
-                          "dropLocation": LatLng(28.7041, 77.1025), // Delhi
-                          "pickupLocationName": "Rajiv Chowk, Delhi",
-                          "dropLocationName": "Indira Gandhi International Airport, Delhi",
-                          "driverName": "Rahul Sharma",
-                          "driverImage": "https://i.pravatar.cc/150?img=12",
-                          "driverPhone": "7898030562",
-                          "chatEnabled": true,
-                          "vehicle": "Toyota Innova Crysta - White",
-                          "seats": 3,
-                          "fare": 450,
-                          "distance": "18 km",
-                          "timeAway": "5 mins",
-                          "date": "13 Nov 2025",
-                          "time": "4:30 PM",
-                          "paymentMethod": "UPI - Paytm",
-                          "rating": 4.9,
-                          "notes": "Please call when you reach the gate",
-                          "promoCode": "WELCOME50"
-                          },
-
-                          );
-                        }));
-                      },
-                      icon: const Icon(Icons.navigation,color: Colors.orangeAccent,),
-                      label:  Text("View Details",style: GoogleFonts.dmSans(color: Colors.white) ,),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xff113F67),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
       ),
     );
   }
 
-  Widget _infoChip(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xffeef1ff),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: const Color(0xff09205f)),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black87),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xfff4f6fb),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        backgroundColor: const Color(0xff113F67),
+        title: Text(
+          "Rides",
+          style: GoogleFonts.lato(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
+        ),
+        centerTitle: true,
+      ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : (myRides.isEmpty && nearbyRides.isEmpty)
+          ? _emptyView()
+          : Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (myRides.isNotEmpty) _myRidesSection(),
+          Expanded(child: _nearbyRidesList()),
+        ],
+      ),
+    );
+  }
+
+  Widget _myRidesSection() {
+    return SizedBox(
+      height: 190,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        scrollDirection: Axis.horizontal,
+        itemCount: myRides.length,
+        itemBuilder: (_, i) => _myRideCard(myRides[i]),
+      ),
+    );
+  }
+
+  Widget _myRideCard(Map<String, dynamic> ride) {
+    final car = ride['carDetails'] ?? {
+      'name': 'Car',
+      'number': 'XXX-000',
+      'color': 'Black',
+    };
+
+    return Container(
+      width: 200,
+      margin: const EdgeInsets.only(right: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text("${ride['from']} → ${ride['to']}",
+              style: GoogleFonts.dmSans(fontSize: 14, fontWeight: FontWeight.bold)),
+          Text("${ride['availableSeats'] ?? "N/A"} seats • ₹${ride['amount']}",
+              style: GoogleFonts.dmSans(fontSize: 12, color: Colors.green.shade800)),
+          Text("${car['name']} • ${car['number']} • ${car['color']}",
+              style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54)),
+          ElevatedButton(
+            onPressed: () => _goToRideDetails(ride),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xff113F67),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text("View Details", style: TextStyle(color: Colors.white)),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _nearbyRidesList() {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: nearbyRides.length,
+      itemBuilder: (_, i) => _rideCard(nearbyRides[i]),
+    );
+  }
+
+  Widget _rideCard(Map<String, dynamic> ride) {
+    final car = ride['carDetails'] ?? {'name': 'Car', 'number': 'XXX-000', 'color': 'Black'};
+    final driverImage = ride['driverImage'] != null && ride['driverImage'].isNotEmpty
+        ? ride['driverImage']
+        : 'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png';
+    final rating = ride['rating'] ?? 0.0;
+    final driverName = ride["driverId"]["name"] ?? 'Driver';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // DRIVER INFO + FARE
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 30,
+                backgroundImage: NetworkImage(driverImage),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      driverName,
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xff09205f),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "${car['name']} • ${car['number']} • ${car['color']} • ${ride['seats']} seats",
+                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xffFFE5B4),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  "₹${ride['amount'].toStringAsFixed(0)}",
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xffFF6F00),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // ROUTE INFO
+          Row(
+            children: [
+              const Icon(Icons.location_on, color: Colors.green),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  ride['from'] ?? "",
+                  style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, size: 14),
+              Expanded(
+                child: Text(
+                  ride['to'] ?? "",
+                  style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // VIEW DETAILS BUTTON
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => _goToRideDetails(ride),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xff113F67),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                elevation: 2,
+              ),
+              child: Text(
+                "View Details",
+                style: GoogleFonts.poppins(
+                    fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.directions_car_filled, size: 90, color: Colors.grey.shade400),
+          const SizedBox(height: 20),
+          Text("No rides found",
+              style: GoogleFonts.dmSans(fontSize: 22, fontWeight: FontWeight.bold)),
+          Text("Please try again later.",
+              style: GoogleFonts.dmSans(color: Colors.grey.shade600)),
         ],
       ),
     );

@@ -1,35 +1,60 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'package:ridematch/views/chats/SocketScreenchat.dart';
 
-class ChatHistoryScreen extends StatelessWidget {
-  const ChatHistoryScreen({super.key});
+class ChatHistoryScreen extends StatefulWidget {
+  final String userId; // current logged-in user
+
+  const ChatHistoryScreen({super.key, required this.userId});
+
+  @override
+  State<ChatHistoryScreen> createState() => _ChatHistoryScreenState();
+}
+
+class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
+  List<Map<String, dynamic>> chatList = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchChatHistory();
+  }
+
+  Future<void> fetchChatHistory() async {
+    final url = Uri.parse('http://192.168.29.206:5000/api/chats/${widget.userId}');
+    try {
+      final res = await http.get(url);
+      if (res.statusCode == 200) {
+        final List data = jsonDecode(res.body);
+        setState(() {
+          chatList = data.map((chat) {
+            return {
+              "chatId": chat["_id"],
+              "name": chat["receiverName"] ?? "Unknown",
+              "lastMessage": chat["lastMessage"] ?? "",
+              "time": chat["lastMessageTime"] ?? "",
+              "unread": chat["unreadCount"] ?? 0,
+              "profile": chat["receiverProfile"] ??
+                  "https://i.pravatar.cc/150?img=3",
+              "receiverId": chat["receiverId"],
+            };
+          }).toList();
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      print("Error fetching chat history: $e");
+      setState(() => isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> chatList = [
-      {
-        "name": "Rohit Sharma",
-        "lastMessage": "Hey! Are you still sharing the cab?",
-        "time": "10:24 AM",
-        "unread": 2,
-        "profile": "https://i.pravatar.cc/150?img=3"
-      },
-      {
-        "name": "Aditi Verma",
-        "lastMessage": "Thanks for confirming the ride!",
-        "time": "09:58 AM",
-        "unread": 0,
-        "profile": "https://i.pravatar.cc/150?img=5"
-      },
-      {
-        "name": "Ridesafe Group",
-        "lastMessage": "Next ride from Indore to Bhopal tomorrow 🚗",
-        "time": "Yesterday",
-        "unread": 5,
-        "profile": "https://i.pravatar.cc/150?img=9"
-      },
-    ];
-
     return Scaffold(
       backgroundColor: const Color(0xfff5f7fb),
       appBar: AppBar(
@@ -54,7 +79,16 @@ class ChatHistoryScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: ListView.builder(
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : chatList.isEmpty
+          ? const Center(
+        child: Text(
+          "No chats available",
+          style: TextStyle(color: Colors.grey),
+        ),
+      )
+          : ListView.builder(
         physics: const BouncingScrollPhysics(),
         itemCount: chatList.length,
         itemBuilder: (context, index) {
@@ -142,7 +176,15 @@ class ChatHistoryScreen extends StatelessWidget {
                 ],
               ),
               onTap: () {
-                // Navigate to chat detail screen
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(
+                      senderId: widget.userId,
+                      receiverId: chat["receiverId"],
+                    ),
+                  ),
+                );
               },
             ),
           );

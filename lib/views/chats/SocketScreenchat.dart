@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:http/http.dart' as http;
 
@@ -22,21 +23,21 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   List<Map<String, dynamic>> messages = [];
+  String receiverName = "";
+  String receiverAvatar = "https://i.pravatar.cc/150?img=3"; // default avatar
 
   @override
   void initState() {
     super.initState();
     connectSocket();
     fetchMessages();
+    fetchReceiverInfo();
   }
 
   void connectSocket() {
     socket = IO.io(
       'http://192.168.29.206:5000',
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .disableAutoConnect()
-          .build(),
+      IO.OptionBuilder().setTransports(['websocket']).disableAutoConnect().build(),
     );
 
     socket.connect();
@@ -46,7 +47,6 @@ class _ChatScreenState extends State<ChatScreen> {
       socket.emit('register', widget.senderId);
     });
 
-    // ✅ Listen for incoming messages
     socket.on('receiveMessage', (data) {
       if (!mounted) return;
       setState(() {
@@ -79,18 +79,33 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> fetchReceiverInfo() async {
+    final url =
+    Uri.parse('http://192.168.29.206:5000/api/users/${widget.receiverId}');
+    final res = await http.get(url);
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      setState(() {
+        receiverName = data['name'] ?? widget.receiverId;
+        receiverAvatar = data['avatar'] ?? "https://i.pravatar.cc/150?img=3";
+      });
+    } else {
+      setState(() {
+        receiverName = widget.receiverId;
+      });
+    }
+  }
+
   void sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    // Emit message to backend
     socket.emit('sendMessage', {
       'senderId': widget.senderId,
       'receiverId': widget.receiverId,
       'message': text,
     });
 
-    // ✅ Also locally add it for instant UI update
     setState(() {
       messages.add({
         'senderId': widget.senderId,
@@ -98,6 +113,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'timestamp': DateTime.now().toString(),
       });
     });
+
     _controller.clear();
     _scrollToBottom();
   }
@@ -112,6 +128,59 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     });
+  }
+
+  Widget buildMessage(Map<String, dynamic> msg, bool isMe) {
+    final time = DateTime.parse(msg['timestamp']).toLocal();
+    final formattedTime =
+        "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        constraints:
+        BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        decoration: BoxDecoration(
+          color: isMe ? const Color(0xff113F67) : Colors.grey.shade200,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isMe ? 16 : 0),
+            bottomRight: Radius.circular(isMe ? 0 : 16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 3,
+              offset: const Offset(1, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment:
+          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            Text(
+              msg['message'],
+              style: GoogleFonts.dmSans(
+                color: isMe ? Colors.white : Colors.black87,
+                fontSize: 15,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              formattedTime,
+              style: GoogleFonts.dmSans(
+                color: isMe ? Colors.white70 : Colors.black45,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -129,71 +198,91 @@ class _ChatScreenState extends State<ChatScreen> {
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         backgroundColor: const Color(0xff113F67),
-        title: Text(
-          "Chat with ${widget.receiverId}",
-          style: const TextStyle(color: Colors.white),
+        elevation: 1,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundImage: NetworkImage(receiverAvatar),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                receiverName,
+                style: GoogleFonts.dmSans(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(10),
-              itemCount: messages.length,
-              itemBuilder: (context, i) {
-                final msg = messages[i];
-                final isMe = msg['senderId'] == widget.senderId;
 
-                return Align(
-                  alignment:
-                  isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin:
-                    const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isMe
-                          ? const Color(0xff113F67).withOpacity(0.8)
-                          : Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      msg['message'],
-                      style: TextStyle(
-                        color: isMe ? Colors.white : Colors.black87,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  itemCount: messages.length,
+                  itemBuilder: (context, i) {
+                    final msg = messages[i];
+                    final isMe = msg['senderId'] == widget.senderId;
+                    return buildMessage(msg, isMe);
+                  },
+                ),
+              ),
+              const SizedBox(height: 70), // leave space for floating input
+            ],
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            color: Colors.white,
+          Positioned(
+            bottom: 12,
+            left: 12,
+            right: 12,
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(),
-                      contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black12,
+                          blurRadius: 4,
+                          offset: const Offset(2, 2),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _controller,
+                      style: GoogleFonts.dmSans(fontSize: 15),
+                      decoration: InputDecoration(
+                        hintText: 'Type a message...',
+                        border: InputBorder.none,
+                      ),
+                      minLines: 1,
+                      maxLines: 5,
                     ),
                   ),
                 ),
-                const SizedBox(width: 5),
-                CircleAvatar(
+                const SizedBox(width: 8),
+                FloatingActionButton(
+                  onPressed: sendMessage,
                   backgroundColor: const Color(0xff113F67),
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white),
-                    onPressed: sendMessage,
-                  ),
-                )
+                  child: const Icon(Icons.send, color: Colors.white),
+                  elevation: 2,
+                  mini: true,
+                ),
               ],
             ),
           ),

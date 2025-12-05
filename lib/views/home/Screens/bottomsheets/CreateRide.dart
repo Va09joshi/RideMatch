@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
+import 'package:ridematch/services/API.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CreateRideScreen extends StatefulWidget {
@@ -105,16 +106,16 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       }
     };
 
-    print("🟡 userId: $userId");
-    print("🟡 token: $token");
-    print("🟡 rideData: ${jsonEncode(rideData)}");
+    print(" userId: $userId");
+    print(" token: $token");
+    print(" rideData: ${jsonEncode(rideData)}");
 
 
 
 
     try {
       final response = await http.post(
-        Uri.parse("http://192.168.29.206:5000/api/rides"),
+        Uri.parse("$baseurl/api/rides"),
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer $token",
@@ -181,183 +182,185 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xffF7F9FB),
+      backgroundColor: const Color(0xffF4F6FA),
+
       appBar: AppBar(
-        elevation: 4,
+        elevation: 0,
         backgroundColor: const Color(0xff113F67),
-        title: Text("Create Ride",
-            style: GoogleFonts.dmSans(color: Colors.white)),
         centerTitle: true,
+        title: Text(
+          "Create Ride",
+          style: GoogleFonts.dmSans(
+            fontWeight: FontWeight.w600,
+            fontSize: 19,
+            color: Colors.white,
+          ),
+        ),
       ),
+
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
         child: Form(
           key: _formKey,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 🔹 Ride Info
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 10,
-                        offset: const Offset(0, 4))
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Ride Details",
-                        style: GoogleFonts.dmSans(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xff113F67))),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: fromController,
-                      label: "From (Pickup)",
-                      icon: Icons.location_on_outlined,
-                      validator: (v) =>
-                      v!.isEmpty ? "Enter pickup location" : null,
-                      suffix: IconButton(
-                        icon: const Icon(Icons.my_location),
-                        onPressed: _getCurrentLocation,
+
+              // 🌍 Ride Info Card
+              _sectionCard(
+                title: "Ride Details",
+                children: [
+
+                  _buildTextField(
+                    controller: fromController,
+                    label: "Pickup Location",
+                    icon: Icons.location_on_outlined,
+                    validator: (v) => v!.isEmpty ? "Enter pickup location" : null,
+                    suffix: IconButton(
+                      icon: const Icon(Icons.my_location_rounded),
+                      onPressed: _getCurrentLocation,
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  _buildTextField(
+                    controller: toController,
+                    label: "Destination",
+                    icon: Icons.flag_rounded,
+                    validator: (v) => v!.isEmpty ? "Enter destination" : null,
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // Date Picker
+                  GestureDetector(
+                    onTap: _selectDate,
+                    child: AbsorbPointer(
+                      child: _buildTextField(
+                        controller: TextEditingController(
+                          text: selectedDate == null
+                              ? ""
+                              : "${selectedDate!.day}-${selectedDate!.month}-${selectedDate!.year}",
+                        ),
+                        label: "Select Date",
+                        icon: Icons.calendar_month_rounded,
+                        validator: (_) =>
+                        selectedDate == null ? "Select date" : null,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: toController,
-                      label: "To (Destination)",
-                      icon: Icons.flag_outlined,
-                      validator: (v) =>
-                      v!.isEmpty ? "Enter destination" : null,
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // Time Picker
+                  GestureDetector(
+                    onTap: _selectTime,
+                    child: AbsorbPointer(
+                      child: _buildTextField(
+                        controller: TextEditingController(
+                          text: selectedTime == null
+                              ? ""
+                              : selectedTime!.format(context),
+                        ),
+                        label: "Select Time",
+                        icon: Icons.access_time_filled_rounded,
+                        validator: (_) =>
+                        selectedTime == null ? "Select time" : null,
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: _selectDate,
-                      child: AbsorbPointer(
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  Row(
+                    children: [
+                      Expanded(
                         child: _buildTextField(
-                          controller: TextEditingController(
-                              text: selectedDate == null
-                                  ? ""
-                                  : "${selectedDate!.day}-${selectedDate!.month}-${selectedDate!.year}"),
-                          label: "Select Date",
-                          icon: Icons.calendar_today,
-                          validator: (_) =>
-                          selectedDate == null ? "Select date" : null,
+                          controller: seatsController,
+                          type: TextInputType.number,
+                          label: "Seats",
+                          icon: Icons.event_seat_rounded,
+                          validator: (v) =>
+                          v!.isEmpty ? "Enter seats" : null,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: _selectTime,
-                      child: AbsorbPointer(
+                      const SizedBox(width: 12),
+                      Expanded(
                         child: _buildTextField(
-                          controller: TextEditingController(
-                              text: selectedTime == null
-                                  ? ""
-                                  : selectedTime!.format(context)),
-                          label: "Select Time",
-                          icon: Icons.access_time,
-                          validator: (_) =>
-                          selectedTime == null ? "Select time" : null,
+                          controller: amountController,
+                          type: TextInputType.number,
+                          label: "Fare (₹)",
+                          icon: Icons.currency_rupee_rounded,
+                          validator: (v) =>
+                          v!.isEmpty ? "Enter amount" : null,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: seatsController,
-                      label: "Available Seats",
-                      icon: Icons.event_seat,
-                      type: TextInputType.number,
-                      validator: (v) =>
-                      v!.isEmpty ? "Enter seat count" : null,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: amountController,
-                      label: "Amount (₹)",
-                      icon: Icons.currency_rupee,
-                      type: TextInputType.number,
-                      validator: (v) => v!.isEmpty ? "Enter amount" : null,
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+
+                ],
               ),
+
               const SizedBox(height: 25),
-              // 🔹 Car Details
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 10,
-                        offset: const Offset(0, 4))
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Car Details",
-                        style: GoogleFonts.dmSans(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xff113F67))),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: carNameController,
-                      label: "Car Name",
-                      icon: Icons.directions_car_filled_outlined,
-                      validator: (v) => v!.isEmpty ? "Enter car name" : null,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: carNumberController,
-                      label: "Car Number",
-                      icon: Icons.confirmation_num_outlined,
-                      validator: (v) =>
-                      v!.isEmpty ? "Enter car number" : null,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                      controller: carColorController,
-                      label: "Car Color",
-                      icon: Icons.color_lens_outlined,
-                      validator: (v) =>
-                      v!.isEmpty ? "Enter car color" : null,
-                    ),
-                  ],
-                ),
+
+              // 🚗 Car Section
+              _sectionCard(
+                title: "Car Details",
+                children: [
+
+                  _buildTextField(
+                    controller: carNameController,
+                    label: "Car Name",
+                    icon: Icons.directions_car_filled_rounded,
+                    validator: (v) => v!.isEmpty ? "Enter car name" : null,
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  _buildTextField(
+                    controller: carNumberController,
+                    label: "Car Number",
+                    icon: Icons.confirmation_number_rounded,
+                    validator: (v) => v!.isEmpty ? "Enter car number" : null,
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  _buildTextField(
+                    controller: carColorController,
+                    label: "Car Color",
+                    icon: Icons.color_lens_rounded,
+                    validator: (v) => v!.isEmpty ? "Enter car color" : null,
+                  ),
+
+                ],
               ),
-              const SizedBox(height: 30),
-              // 🔹 Submit Button
+
+              const SizedBox(height: 35),
+
+              // 🌟 CREATE BUTTON
               SizedBox(
                 width: double.infinity,
                 height: 55,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.send_rounded,
-                      size: 22, color: Colors.white),
+                child: ElevatedButton(
                   onPressed: isLoading ? null : _createRide,
-                  label: Text(
-                    isLoading ? "Creating..." : "Publish Ride",
-                    style: GoogleFonts.dmSans(
-                        fontSize: 17,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600),
-                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xff113F67),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Text(
+                    isLoading ? "Publishing..." : "Publish Ride",
+                    style: GoogleFonts.dmSans(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -367,4 +370,41 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       ),
     );
   }
+
+  /// -----------------------------------------------------------------------
+  /// 🧩 CLEAN UI COMPONENTS
+  /// -----------------------------------------------------------------------
+
+  Widget _sectionCard({required String title, required List<Widget> children}) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12.withOpacity(0.07),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.dmSans(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xff113F67),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...children,
+        ],
+      ),
+    );
+  }
+
 }

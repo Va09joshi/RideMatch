@@ -21,13 +21,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool isLoading = true;
   File? _profileImage;
 
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _passwordController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     fetchUserData();
   }
 
-  /// 🧾 Fetch user data
+  // FETCH USER DATA
   Future<void> fetchUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
@@ -39,28 +44,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final response = await http.get(
-        Uri.parse('http://192.168.29.206:5000/api/auth/me'),
+        Uri.parse("http://192.168.29.206:5000/api/auth/me"),
         headers: {'Authorization': 'Bearer $token'},
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+
         setState(() {
+          // Use 'user' object if returned, else data directly
           userData = data['user'] ?? data;
+
+          _nameController.text = userData?['name'] ?? '';
+          _emailController.text = userData?['email'] ?? '';
+          _phoneController.text = userData?['phone'] ?? '';
+
+          // Optional: Clear local _profileImage to show updated network image
+          _profileImage = null;
+
           isLoading = false;
         });
       } else if (response.statusCode == 401) {
         logout();
-      } else {
-        setState(() => isLoading = false);
       }
     } catch (e) {
-      debugPrint("❌ Error fetching profile: $e");
+      debugPrint("❌ Error loading profile: $e");
       setState(() => isLoading = false);
     }
   }
 
-  /// 🚪 Logout function
+
   Future<void> logout() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.clear();
@@ -68,287 +81,315 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
-  /// 🖼 Pick profile image
+  // PICK IMAGE
   Future<void> pickImage() async {
-    final pickedFile =
-    await ImagePicker().pickImage(source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 70,
+    );
+
     if (pickedFile != null) {
       setState(() => _profileImage = File(pickedFile.path));
       await uploadProfileImage(_profileImage!);
     }
   }
 
-  /// ⬆ Upload new profile picture
+  // UPLOAD IMAGE
   Future<void> uploadProfileImage(File image) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
     if (token == null) return;
 
-    var request = http.MultipartRequest(
+    final request = http.MultipartRequest(
       'POST',
       Uri.parse('http://192.168.29.206:5000/api/auth/upload-profile'),
     );
+
     request.headers['Authorization'] = 'Bearer $token';
     request.files.add(await http.MultipartFile.fromPath('profile', image.path));
 
-    var response = await request.send();
+    final response = await request.send();
 
     if (response.statusCode == 200) {
       await fetchUserData();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("✅ Profile picture updated successfully")),
-      );
+      _snack("Profile picture updated successfully");
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("⚠️ Failed to upload profile image")),
-      );
+      _snack("Failed to upload profile image", error: true);
     }
   }
 
-  /// 🧱 UI starts here
+  // UPDATE PROFILE
+  Future<void> updateProfile() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('token');
+    if (token == null) return;
+
+    try {
+      final response = await http.put(
+        Uri.parse("http://192.168.29.206:5000/api/auth/update-profile"),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'phone': _phoneController.text.trim(),
+          if (_passwordController.text.isNotEmpty)
+            'password': _passwordController.text.trim(),
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() => _profileImage = null);
+        await fetchUserData(); // fetch updated URL from server
+        _snack("Profile picture updated successfully");
+      }
+      else {
+        _snack("Failed to update profile", error: true);
+      }
+    } catch (e) {
+      debugPrint("❌ Update error: $e");
+    }
+  }
+
+  void _snack(String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: error ? Colors.red : Colors.green,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: const Color(0xff113F67),
-        title: Center(
-          child: Text(
-            "Profile",
-            style: GoogleFonts.dmSans(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 22,
-            ),
-          ),
+      backgroundColor: const Color(0xffF4F7FC),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+        child: Column(
+          children: [
+            _header(),
+            _profileForm(),
+            _sectionTitle("Your Activities"),
+            _optionCard(Icons.document_scanner, "Verified Document", () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => VerifiedDoc()));
+            }),
+            _optionCard(Icons.directions_car_rounded, "My Rides", () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => MyRidesScreen()));
+            }),
+            _optionCard(Icons.wallet_rounded, "Payment Methods", () {
+              Navigator.pushNamed(context, '/payments');
+            }),
+            _optionCard(Icons.support_agent_rounded, "Help Center", () {
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => HelpCenterPage()));
+            }),
+
+            _sectionTitle("Settings"),
+            _optionCard(Icons.lock_rounded, "Privacy & Security", () {
+              Navigator.pushNamed(context, '/privacy');
+            }),
+            _optionCard(Icons.notifications, "Notifications", () {
+              Navigator.pushNamed(context, '/notifications');
+            }),
+            _optionCard(Icons.language, "Language Preferences", () {
+              Navigator.pushNamed(context, '/languages');
+            }),
+            _optionCard(Icons.info_outline, "About App", () {
+              Navigator.pushNamed(context, '/about');
+            }),
+
+            const SizedBox(height: 25),
+            _logoutButton(),
+            const SizedBox(height: 30),
+          ],
         ),
       ),
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-          padding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              /// 🧍 Profile Image
-              GestureDetector(
-                onTap: pickImage,
-                child: Stack(
-                  alignment: Alignment.bottomRight,
-                  children: [
-                    CircleAvatar(
-                      radius: 55,
-                      backgroundColor: Colors.grey.shade200,
-                      backgroundImage: _profileImage != null
-                          ? FileImage(_profileImage!)
-                          : (userData?['profileUrl'] != null
-                          ? NetworkImage(userData!['profileUrl'])
-                          : const AssetImage(
-                          'assets/images/default_avatar.png')
-                      as ImageProvider),
-                    ),
-                    Container(
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xff09205f),
-                      ),
-                      padding: const EdgeInsets.all(6),
-                      child: const Icon(Icons.camera_alt,
-                          color: Colors.white, size: 18),
-                    ),
-                  ],
+    );
+  }
+
+  // HEADER WITH PROFILE IMAGE
+  Widget _header() {
+    final String? profileUrl = userData?['profileImage']; // <-- match backend key
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(top: 60, bottom: 30),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xff113F67), Color(0xff0B2847)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(26)),
+      ),
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: pickImage,
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 55,
+                  backgroundColor: Colors.white,
+                  backgroundImage: _profileImage != null
+                      ? FileImage(_profileImage!)
+                      : (profileUrl != null && profileUrl.isNotEmpty
+                      ? NetworkImage(profileUrl)
+                      : const AssetImage('assets/images/default_avatar.png') as ImageProvider),
                 ),
-              ),
-              const SizedBox(height: 16),
-
-              /// 🧾 Name + Email
-              Text(
-                userData?['name'] ?? 'Guest User',
-                style: GoogleFonts.dmSans(
-                  color: const Color(0xff09205f),
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                userData?['email'] ?? 'user@email.com',
-                style: GoogleFonts.dmSans(
-                  color: Colors.black54,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 30),
-
-              /// 🪪 Account Info
-              _sectionTitle("Account Information"),
-              _infoCard("Full Name", userData?['name'] ?? "Not available"),
-              _infoCard("Email", userData?['email'] ?? "Not available"),
-              _infoCard("Phone", userData?['phone'] ?? "Not linked"),
-              _infoCard(
-                  "Member Since",
-                  (userData?['createdAt'] != null)
-                      ? userData!['createdAt']
-                      .toString()
-                      .substring(0, 10)
-                      : "N/A"),
-
-              const SizedBox(height: 30),
-
-              /// 🚗 Activities
-              _sectionTitle("Your Activities"),
-              _optionCard(Icons.document_scanner, "Verified Document",
-                      () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context){
-                          return VerifiedDoc();
-                        }));
-
-                      }),
-              _optionCard(Icons.directions_car_rounded, "My Rides", () {
-                Navigator.push(context, MaterialPageRoute(builder: (context){
-                  return MyRidesScreen();
-                }));
-              }),
-              _optionCard(Icons.wallet_rounded, "Payment Methods", () {
-                Navigator.pushNamed(context, '/payments');
-              }),
-              _optionCard(
-                  Icons.support_agent_rounded, "Help Center", () {
-                Navigator.push(context, MaterialPageRoute(builder: (context){
-                  return HelpCenterPage() ;
-                }));
-              }),
-
-              const SizedBox(height: 30),
-
-              /// ⚙️ Settings
-              _sectionTitle("Settings"),
-              _optionCard(
-                  Icons.lock_rounded, "Privacy & Security", () {
-                Navigator.pushNamed(context, '/privacy');
-              }),
-              _optionCard(Icons.notifications_rounded, "Notifications",
-                      () {
-                    Navigator.pushNamed(context, '/notifications');
-                  }),
-              _optionCard(Icons.language_rounded, "Language Preferences",
-                      () {
-                    Navigator.pushNamed(context, '/languages');
-                  }),
-              _optionCard(Icons.info_outline_rounded, "About App", () {
-                Navigator.pushNamed(context, '/about');
-              }),
-
-              const SizedBox(height: 30),
-
-              /// 🚪 Logout Button
-              GestureDetector(
-                onTap: logout,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.redAccent.withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      )
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      "Log Out",
-                      style: GoogleFonts.dmSans(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
+                Positioned(
+                  right: 4,
+                  bottom: 4,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white,
                     ),
+                    child: const Icon(Icons.camera_alt,
+                        size: 18, color: Colors.black87),
                   ),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            userData?['name'] ?? "User",
+            style: GoogleFonts.dmSans(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
+            ),
+          ),
+          Text(
+            userData?['email'] ?? "",
+            style: GoogleFonts.dmSans(
+              color: Colors.white70,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+
+  // PROFILE FORM UI
+  Widget _profileForm() {
+    return Container(
+      margin: const EdgeInsets.only(top: 20, bottom: 20, left: 18, right: 18),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        children: [
+          _sectionTitle("Account Information"),
+          _input("Full Name", _nameController),
+          _input("Email", _emailController),
+          _input("Phone", _phoneController),
+          _input("Password", _passwordController, obscure: true),
+
+          const SizedBox(height: 10),
+          ElevatedButton(
+            onPressed: updateProfile,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xff113F67),
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
-            ],
+            ),
+            child: Text(
+              "Update Profile",
+              style: GoogleFonts.dmSans(fontSize: 16, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _input(String label, TextEditingController controller,
+      {bool obscure = false}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
+        obscureText: obscure,
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: GoogleFonts.dmSans(
+            color: Colors.black54,
+            fontSize: 14,
+          ),
+          filled: true,
+          fillColor: Colors.grey.shade100,
+          contentPadding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xff113F67)),
           ),
         ),
       ),
     );
   }
 
-  /// 🧾 Section Title
   Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12, left: 4),
-      child: Align(
-        alignment: Alignment.centerLeft,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10, top: 6),
         child: Text(
           title,
           style: GoogleFonts.dmSans(
             color: Colors.black87,
             fontWeight: FontWeight.w700,
-            fontSize: 18,
+            fontSize: 17,
           ),
         ),
       ),
     );
   }
 
-  /// 📋 Info Card
-  Widget _infoCard(String label, String value) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.08),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          )
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label,
-              style: GoogleFonts.dmSans(color: Colors.black54, fontSize: 14)),
-          Flexible(
-            child: Text(
-              value,
-              style: GoogleFonts.dmSans(
-                color: Colors.black87,
-                fontWeight: FontWeight.w500,
-                fontSize: 14,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// ⚙️ Option Card (Now Clickable)
   Widget _optionCard(IconData icon, String title, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 15),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.12),
+              color: Colors.black12.withOpacity(0.05),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -356,21 +397,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         child: Row(
           children: [
-            Icon(icon, color: const Color(0xff09205f), size: 26),
+            Icon(icon, color: const Color(0xff113F67), size: 26),
             const SizedBox(width: 16),
             Expanded(
               child: Text(
                 title,
                 style: GoogleFonts.dmSans(
                   color: Colors.black87,
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.w500,
                 ),
               ),
             ),
             const Icon(Icons.arrow_forward_ios,
-                color: Colors.black38, size: 16),
+                size: 16, color: Colors.black38),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _logoutButton() {
+    return GestureDetector(
+      onTap: logout,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        decoration: BoxDecoration(
+          color: Colors.redAccent,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Center(
+          child: Text(
+            "Log Out",
+            style: GoogleFonts.dmSans(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 16,
+            ),
+          ),
         ),
       ),
     );
