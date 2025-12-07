@@ -42,7 +42,7 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       }
 
       final response = await http.get(
-        Uri.parse("http://192.168.29.206:5000/api/rides/user/$userId"),
+        Uri.parse("$baseurl/api/rides/user/$userId"),
         headers: {"Authorization": "Bearer $token"},
       );
 
@@ -75,7 +75,7 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       }
 
       final response = await http.get(
-        Uri.parse("http://192.168.29.206:5000/api/rides/requests/$userId"),
+        Uri.parse("$baseurl/api/rides/requests/$userId"),
         headers: {"Authorization": "Bearer $token"},
       );
 

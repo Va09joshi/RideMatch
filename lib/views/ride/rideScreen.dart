@@ -19,7 +19,7 @@ class _RideScreenState extends State<RideScreen> {
   bool loading = true;
   String? currentUserId;
 
-  static const baseUrl = "http://192.168.29.206:5000/api";
+  static const baseUrl = "https://ridematch-final.onrender.com/api";
 
   @override
   void initState() {
@@ -78,6 +78,13 @@ class _RideScreenState extends State<RideScreen> {
       if (nearbyResponse.statusCode == 200) {
         final nearbyData = jsonDecode(nearbyResponse.body);
         nearbyRides = parseRides(nearbyData['rides'] ?? nearbyData['data']);
+
+        if (currentUserId != null) {
+          nearbyRides.removeWhere((ride) =>
+          ride['userId'] == currentUserId || // if rides use 'userId'
+              ride['driverId']?['_id'] == currentUserId // or 'driverId'
+          );
+        }
 
         // Sort by newest first
         nearbyRides.sort((a, b) {
@@ -270,7 +277,7 @@ class _RideScreenState extends State<RideScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "${car['name']} • ${car['number']} • ${car['color']} • ${ride['seats']} seats",
+                      "${car['name']} • ${car['number']} • ${car['color']} • ${ride['availableSeats']} seats",
                       style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54),
                     ),
                   ],

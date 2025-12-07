@@ -24,7 +24,7 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
   }
 
   Future<void> fetchChatHistory() async {
-    final url = Uri.parse('http://192.168.29.206:5000/api/chats/${widget.userId}');
+    final url = Uri.parse('http://192.168.29.206:5000/api/chathistory/${widget.userId}');
     try {
       final res = await http.get(url);
       if (res.statusCode == 200) {

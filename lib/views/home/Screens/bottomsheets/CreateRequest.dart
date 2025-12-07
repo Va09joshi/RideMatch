@@ -4,6 +4,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
+import 'package:ridematch/services/API.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CreateLocationRequestScreen extends StatefulWidget {
@@ -174,7 +175,7 @@ class _CreateLocationRequestScreenState
 
       final response = await http.post(
         Uri.parse(
-            "http://192.168.29.206:5000/api/rides/${widget.rideId}/request"),
+            "$baseurl/api/rides/${widget.rideId}/request"),
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer $token",

@@ -6,12 +6,16 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
+import 'package:ridematch/services/API.dart';
 import 'package:ridematch/views/home/Screens/bottomsheets/CreateRequest.dart';
 import 'package:ridematch/views/home/Screens/bottomsheets/CreateRide.dart';
+import 'package:ridematch/views/notification/notifications_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:badges/badges.dart' as badges;
+
 
 class HomeScreen extends StatefulWidget {
-  final Map<String, dynamic>? bookedRide; // Add this
+  final Map<String, dynamic>? bookedRide;
 
   const HomeScreen({super.key, this.bookedRide});
 
@@ -24,10 +28,14 @@ class _HomeScreenState extends State<HomeScreen> {
   LatLng? _currentPosition;
   Set<Marker> _markers = {};
   bool isLoading = false;
+  BitmapDescriptor? rideMarkerIcon;
+  bool hasNewNotification = false;
+
 
   List<dynamic> ridePosts = [];
   String? userName;
   String? fullAddress;
+  String? currentUserId;
 
   final TextEditingController fromController = TextEditingController();
   final TextEditingController toController = TextEditingController();
@@ -38,8 +46,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _initialize();
     fromController.addListener(_filterRides);
     toController.addListener(_filterRides);
+    _loadMarkerIcon();
   }
 
+  // Load custom marker
+  Future<void> _loadMarkerIcon() async {
+    rideMarkerIcon = await BitmapDescriptor.fromAssetImage(
+      const ImageConfiguration(size: Size(48, 48)),
+      'assets/images/ride_marker.png',
+    );
+  }
+
+  // Initialization
   Future<void> _initialize() async {
     await _getUserLocation();
     await _loadUserData();
@@ -51,9 +69,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Get current user location
   Future<void> _getUserLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    if (!await Geolocator.isLocationServiceEnabled()) return;
 
     LocationPermission permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied ||
@@ -73,13 +91,43 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> checkNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('token');
+    String? userId = prefs.getString('userId');
+
+    if (userId == null) return;
+
+    final res = await http.get(
+      Uri.parse("$baseurl/api/notifications/$userId"),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      final list = List<Map<String, dynamic>>.from(
+          data['notifications'] ?? data['notification'] ?? data['data'] ?? []);
+      if (list.any((item) => item['read'] == false)) {
+        setState(() {
+          hasNewNotification = true;
+        });
+      }
+    }
+  }
+
+  // Load user data from SharedPreferences
   Future<void> _loadUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
       userName = prefs.getString('username') ?? "User";
+      currentUserId = prefs.getString('userId');
     });
   }
 
+  // Fetch profile
   Future<void> fetchUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
@@ -87,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final res = await http.get(
-        Uri.parse('http://192.168.29.206:5000/api/user/profile'),
+        Uri.parse('$baseurl/api/user/profile'),
         headers: {'Authorization': 'Bearer $token'},
       );
 
@@ -102,15 +150,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Fetch rides
   Future<void> fetchRides() async {
     setState(() => isLoading = true);
     try {
-      final response = await http.get(Uri.parse('http://192.168.29.206:5000/api/rides'));
+      final response = await http.get(Uri.parse('$baseurl/api/rides'));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
           ridePosts = data['rides'];
-          _addRideMarkers(); // Add markers for all rides
+          _addRideMarkers();
         });
       }
     } catch (e) {
@@ -120,28 +169,32 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
-
-  // Show all rides as markers
+  // Add all ride markers
   void _addRideMarkers() {
     _markers.clear();
 
     for (var ride in ridePosts) {
+      final driver = ride['driverId'];
+      final driverId = driver is String ? driver : driver['_id'];
+
+      if (driverId == currentUserId) continue;
+
       if (ride['fromLat'] != null && ride['fromLong'] != null) {
-        final marker = Marker(
-          markerId: MarkerId(ride['_id']),
-          position: LatLng(
-            double.parse(ride['fromLat'].toString()),
-            double.parse(ride['fromLong'].toString()),
+        _markers.add(
+          Marker(
+            markerId: MarkerId(ride['_id']),
+            position: LatLng(
+              double.parse(ride['fromLat'].toString()),
+              double.parse(ride['fromLong'].toString()),
+            ),
+            infoWindow: InfoWindow(
+              title: "${ride['from']} → ${ride['to']}",
+              snippet: "Rs ${ride['amount']}",
+              onTap: () => _showRideDetail(ride),
+            ),
+            icon: rideMarkerIcon ?? BitmapDescriptor.defaultMarker,
           ),
-          infoWindow: InfoWindow(
-            title: "${ride['from']} → ${ride['to']}",
-            snippet: "Rs ${ride['amount']}",
-            onTap: () => _showRideDetail(ride),
-          ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
         );
-        _markers.add(marker);
       }
     }
 
@@ -149,7 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _zoomToFitMarkers();
   }
 
-  // Filter rides using From/To input
+  // Filter rides by From/To
   void _filterRides() {
     String from = fromController.text.toLowerCase();
     String to = toController.text.toLowerCase();
@@ -157,6 +210,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _markers.clear();
 
     for (var ride in ridePosts) {
+      final driver = ride['driverId'];
+      final driverId = driver is String ? driver : driver['_id'];
+
+      if (driverId == currentUserId) continue;
+
       String rideFrom = (ride['from'] ?? '').toLowerCase();
       String rideTo = (ride['to'] ?? '').toLowerCase();
 
@@ -186,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _zoomToFitMarkers();
   }
 
-  // Zoom map to include all markers
+  // Zoom map to fit all markers
   void _zoomToFitMarkers() {
     if (_markers.isEmpty || mapController == null) return;
 
@@ -210,6 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
     mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
   }
 
+  // Add booked ride markers
   void _addBookedRideMarker(Map<String, dynamic> ride) {
     if (ride['pickupLocation'] != null && ride['dropLocation'] != null) {
       final pickup = LatLng(
@@ -221,7 +280,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ride['dropLocation']['lng'],
       );
 
-      // Add pickup marker
       _markers.add(
         Marker(
           markerId: const MarkerId('booked_pickup'),
@@ -231,7 +289,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
 
-      // Add drop marker
       _markers.add(
         Marker(
           markerId: const MarkerId('booked_drop'),
@@ -241,12 +298,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
 
-      // Optional: Zoom to fit booked ride
       Future.delayed(const Duration(milliseconds: 300), _zoomToFitMarkers);
     }
   }
 
-
+  // Show ride detail bottom sheet
   void _showRideDetail(dynamic ride) {
     showModalBottomSheet(
       context: context,
@@ -261,13 +317,11 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text("${ride['from']} → ${ride['to']}",
-                style:
-                GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.bold)),
+                style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Text("Driver: ${ride["driverId"]["name"] ?? 'N/A'}",
                 style: GoogleFonts.dmSans(fontSize: 16)),
-            Text("Amount: Rs ${ride['amount']}",
-                style: GoogleFonts.dmSans(fontSize: 16)),
+            Text("Amount: Rs ${ride['amount']}", style: GoogleFonts.dmSans(fontSize: 16)),
             Text("Seats: ${ride['seats']}", style: GoogleFonts.dmSans(fontSize: 16)),
             const SizedBox(height: 12),
             Row(
@@ -277,22 +331,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.group_add),
                   label: const Text("Join Ride"),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.shade600),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600),
                 ),
                 ElevatedButton.icon(
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.chat_bubble_outline),
                   label: const Text("Chat"),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
                 ),
                 ElevatedButton.icon(
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.handshake_outlined),
                   label: const Text("Propose"),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orangeAccent),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
                 ),
               ],
             ),
@@ -302,26 +353,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Quick Actions bottom sheet
   void _showQuickActions() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.white,
       isScrollControlled: true,
       builder: (_) => Container(
         decoration: const BoxDecoration(
-          color: Colors.white,
+          color: Colors.white54,
           borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         child: Wrap(
-          runSpacing: 20,
+          runSpacing: 6,
           children: [
             Center(
               child: Container(
                 height: 5,
                 width: 60,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: Color(0xff113F67),
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
@@ -330,18 +382,15 @@ class _HomeScreenState extends State<HomeScreen> {
             Center(
               child: Text(
                 "Quick Actions",
-                style: GoogleFonts.dmSans(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ),
-            Divider(thickness: 1, height: 10),
+            const Divider(thickness: 1, height: 20),
             _buildActionTile(
               icon: Icons.directions_car,
-              iconColor: Colors.blue,
-              iconBg: const Color(0xFFCCE5FF),
               title: "Create a Ride",
+              iconBgColor: Colors.blue.shade50,
+              iconColor: Colors.blue.shade700,
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const CreateRideScreen()),
@@ -349,9 +398,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _buildActionTile(
               icon: Icons.add_location_alt,
-              iconColor: Colors.green,
-              iconBg: const Color(0xFFDFFFD6),
               title: "Create a Location Request",
+              iconBgColor: Colors.green.shade50,
+              iconColor: Colors.green.shade700,
               onTap: () {
                 Navigator.pop(context);
                 if (ridePosts.isNotEmpty) {
@@ -365,9 +414,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _buildActionTile(
               icon: Icons.people_alt,
-              iconColor: Colors.orange,
-              iconBg: const Color(0xFFFFE6CC),
               title: "Nearby Matches",
+              iconBgColor: Colors.orange.shade50,
+              iconColor: Colors.orange.shade700,
               onTap: () => Navigator.pop(context),
             ),
           ],
@@ -378,42 +427,55 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildActionTile({
     required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
     required String title,
+    required Color iconBgColor,
+    required Color iconColor,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.black45.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 4,
+              height: 48,
+              decoration: BoxDecoration(
+                color: iconColor,
+                borderRadius: BorderRadius.circular(2),
               ),
-            ],
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: iconBg,
-                child: Icon(icon, color: iconColor),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: iconBgColor,
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(width: 16),
-              Text(
+              padding: const EdgeInsets.all(14),
+              child: Icon(icon, color: iconColor, size: 26),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
                 title,
-                style: GoogleFonts.dmSans(fontWeight: FontWeight.w500, fontSize: 16),
+                style: GoogleFonts.dmSans(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w600),
               ),
-            ],
-          ),
+            ),
+            Icon(Icons.arrow_forward_ios_rounded, size: 18, color: Colors.grey[400]),
+          ],
         ),
       ),
     );
@@ -440,8 +502,7 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text("Hey ${userName ?? 'User'} 👋",
-                style: GoogleFonts.dmSans(
-                    fontWeight: FontWeight.w600, fontSize: 18, color: Colors.white)),
+                style: GoogleFonts.dmSans(fontWeight: FontWeight.w600, fontSize: 18, color: Colors.white)),
             const SizedBox(height: 4),
             Row(
               children: [
@@ -450,17 +511,35 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: Text(fullAddress ?? "Fetching location...",
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.dmSans(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400)),
+                      style: GoogleFonts.dmSans(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w400)),
                 ),
               ],
             ),
           ],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.notifications, color: Colors.white), onPressed: () {})
+          IconButton(
+            icon: badges.Badge(
+              showBadge: hasNewNotification, // boolean you will track
+              badgeStyle: const badges.BadgeStyle(
+                badgeColor: Colors.red,
+                elevation: 0,
+              ),
+              badgeContent: const SizedBox.shrink(), // small dot
+              child: const Icon(Icons.notifications, color: Colors.white),
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationScreen()),
+              ).then((_) {
+                // reset the badge after opening notifications
+                setState(() {
+                  hasNewNotification = false;
+                });
+              });
+            },
+          )
         ],
       ),
       body: Stack(
@@ -469,8 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? const Center(child: CircularProgressIndicator())
               : GoogleMap(
             onMapCreated: (controller) => mapController = controller,
-            initialCameraPosition:
-            CameraPosition(target: _currentPosition!, zoom: 14.5),
+            initialCameraPosition: CameraPosition(target: _currentPosition!, zoom: 14.5),
             myLocationEnabled: true,
             markers: _markers,
           ),
@@ -482,12 +560,7 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.95),
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 10,
-                      offset: const Offset(0, 3))
-                ],
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 3))],
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
@@ -504,8 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  const Icon(Icons.arrow_forward_ios_rounded,
-                      size: 16, color: Colors.grey),
+                  const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
@@ -517,16 +589,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  IconButton(
-                      icon: const Icon(Icons.filter_alt_outlined,
-                          color: Colors.blueAccent),
-                      onPressed: _filterRides),
+                  IconButton(icon: const Icon(Icons.filter_alt_outlined, color: Colors.blueAccent), onPressed: _filterRides),
                 ],
               ),
             ),
           ),
-
-
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
@@ -535,9 +602,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: FloatingActionButton.extended(
           onPressed: _showQuickActions,
           backgroundColor: const Color(0xff113F67),
-          label: Text("Quick Actions",
-              style: GoogleFonts.dmSans(
-                  color: Colors.white, fontWeight: FontWeight.w500)),
+          label: Text("Quick Actions", style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w500)),
           icon: const Icon(Icons.add_circle_outline, color: Colors.white),
           elevation: 8,
         ),

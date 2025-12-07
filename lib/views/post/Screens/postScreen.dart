@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:ridematch/services/API.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:ridematch/views/chats/SocketScreenchat.dart';
@@ -44,7 +45,7 @@ class _PostScreenState extends State<PostScreen> {
 
       if (senderId != null) {
         final myResp = await http.get(
-          Uri.parse('http://192.168.29.206:5000/api/rides/requests/$senderId'),
+          Uri.parse('$baseurl/api/rides/requests/$senderId'),
           headers: {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
@@ -54,6 +55,11 @@ class _PostScreenState extends State<PostScreen> {
         if (myResp.statusCode == 200) {
           final data = jsonDecode(myResp.body);
           myReqList = List<Map<String, dynamic>>.from(data['requests']);
+
+          for (var req in myReqList) {
+            final likedBy = req['likedBy'] ?? [];
+            liked[req['_id']] = likedBy.contains(senderId);
+          }
         }
 
         double latitude = 22.97882;
@@ -61,7 +67,7 @@ class _PostScreenState extends State<PostScreen> {
 
         final nearbyResp = await http.get(
           Uri.parse(
-              'http://192.168.29.206:5000/api/rides/requests/nearby/list?longitude=$longitude&latitude=$latitude'),
+              '$baseurl/api/rides/requests/nearby/list?longitude=$longitude&latitude=$latitude'),
           headers: {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
@@ -71,6 +77,11 @@ class _PostScreenState extends State<PostScreen> {
         if (nearbyResp.statusCode == 200) {
           final data = jsonDecode(nearbyResp.body);
           others = List<Map<String, dynamic>>.from(data['requests']);
+
+          for (var req in others) {
+            final likedBy = req['likedBy'] ?? [];
+            liked[req['_id']] = likedBy.contains(senderId);
+          }
 
           others.removeWhere((req) {
             final uid = req['userId'] is Map ? req['userId']['_id'] : req['userId'];
@@ -93,12 +104,12 @@ class _PostScreenState extends State<PostScreen> {
     }
   }
 
-  // 🔥 SEND LIKE NOTIFICATION
-  Future<void> _sendLikeNotification(String receiverId, String requestId) async {
+  // 🔥 SEND LIKE/UNLIKE NOTIFICATION
+  Future<void> _sendLikeNotification(String receiverId, String requestId, bool isLiked) async {
     final prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
 
-    final url = Uri.parse('http://192.168.29.206:5000/api/notifications/like');
+    final url = Uri.parse('$baseurl/api/notifications/like');
 
     try {
       final res = await http.post(
@@ -111,24 +122,39 @@ class _PostScreenState extends State<PostScreen> {
           "senderId": senderId,
           "receiverId": receiverId,
           "requestId": requestId,
-          "type": "like"
+          "type": isLiked ? "like" : "unlike" // <-- Correctly notify like/unlike
         }),
       );
 
       print("LIKE NOTIFICATION SENT → ${res.body}");
     } catch (e) {
       print("Error sending like notification: $e");
+      // If failed, revert the UI toggle
+      setState(() {
+        liked[requestId] = !isLiked;
+      });
     }
+  }
+
+  String _getUserProfileImage(dynamic user) {
+    if (user == null) return 'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png';
+    if (user is Map) {
+      if (user.containsKey('profileImage') && user['profileImage'] != null && user['profileImage'].toString().isNotEmpty) {
+        return user['profileImage'];
+      } else if (user.containsKey('avatar') && user['avatar'] != null && user['avatar'].toString().isNotEmpty) {
+        return user['avatar'];
+      }
+    }
+    return 'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png';
   }
 
   Widget _buildRequestCard(Map<String, dynamic> request) {
     final user = request['userId'];
     final userId = user is Map ? user['_id'] : user;
     final userName = user is Map ? user['name'] : 'Unknown';
-    final userImage = user is Map ? user['profileImage'] ?? '' : '';
+    final userImage = _getUserProfileImage(user);
 
     final requestId = request['_id'];
-
     liked.putIfAbsent(requestId, () => false);
 
     return Container(
@@ -174,14 +200,12 @@ class _PostScreenState extends State<PostScreen> {
 
               // ❤️ LIKE BUTTON → Sends Notification
               GestureDetector(
-                onTap: () {
-                  setState(() {
-                    liked[requestId] = !liked[requestId]!;
-                  });
+                onTap: () async {
+                  bool newState = !liked[requestId]!;
+                  setState(() => liked[requestId] = newState);
 
-                  if (liked[requestId]!) {
-                    _sendLikeNotification(userId, requestId);
-                  }
+                  // Send correct like/unlike notification
+                  await _sendLikeNotification(userId, requestId, newState);
                 },
                 child: Icon(
                   liked[requestId]!
@@ -195,16 +219,13 @@ class _PostScreenState extends State<PostScreen> {
           ),
 
           const SizedBox(height: 16),
-
           _locationBox(request),
-
           const SizedBox(height: 10),
 
           Text(request['note'] ?? '',
               style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black87)),
 
           const SizedBox(height: 16),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -330,15 +351,15 @@ class _PostScreenState extends State<PostScreen> {
         backgroundColor: const Color(0xff113F67),
         title: Text("Posts",
             style: GoogleFonts.dmSans(
-              color: Colors.white,
-                fontWeight: FontWeight.w700, fontSize: 22)),
+                color: Colors.white, fontWeight: FontWeight.w700, fontSize: 22)),
         centerTitle: true,
         elevation: 0,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-          onRefresh: _fetchRequests, child: _buildRequestList()),
+          onRefresh: _fetchRequests,
+          child: _buildRequestList()),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           if (senderId == null) return;

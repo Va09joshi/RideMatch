@@ -27,7 +27,7 @@ class _LoginScreenState extends State<LoginScreen>
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
 
-  final String apiUrl = "http://192.168.29.206:5000/api/auth/login";
+  final String apiUrl = "$baseurl/api/auth/login";
 
   @override
   void initState() {

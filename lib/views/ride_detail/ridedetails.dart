@@ -34,6 +34,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   String etaText = "0 mins";
   String fareText = "₹0";
 
+
   late Razorpay _razorpay;
 
   @override
@@ -227,9 +228,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             const SizedBox(height: 12),
             _paymentBtn(Icons.money, "Pay with Cash", onTap: () {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Cash payment selected")),
-              );
+              _showRideStartedPopup();
             }),
             const SizedBox(height: 20),
           ],
@@ -327,6 +326,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       String driverImage,
       double rating,
       ) {
+    // Correct way to get driverId
+    final driverId = ride['driverId'] is Map ? ride['driverId']['_id'] : ride['driverId'];
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -360,7 +362,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
               seats: ride['seats'],
             ),
             const SizedBox(height: 15),
-            if (ride['driverId'] != widget.currentUserId)
+            // Use the correctly extracted driverId
+            if (driverId != widget.currentUserId)
               ElevatedButton(
                 onPressed: _showPaymentSheet,
                 style: ElevatedButton.styleFrom(
@@ -370,7 +373,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                 ),
                 child: Text(
                   "ACCEPT & PAY",
-                  style: GoogleFonts.poppins(fontSize: 17, fontWeight: FontWeight.w600),
+                  style: GoogleFonts.dmSans(
+                      fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white),
                 ),
               ),
           ],
@@ -378,6 +382,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       ),
     );
   }
+
 
   Widget _driverCard(String name, String phone, String image, double rating) {
     return Container(
@@ -543,6 +548,71 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       ],
     );
   }
+
+  void _showRideStartedPopup() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isDismissible: false, // prevent swipe down dismissal
+      builder: (_) {
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 50),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26.withOpacity(0.2),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.directions_car, color: Color(0xff0A2647), size: 28),
+              const SizedBox(width: 12),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "Ride Started",
+                    style: GoogleFonts.dmSans(
+                      color: const Color(0xff0A2647),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Happy Journey!",
+                    style: GoogleFonts.dmSans(
+                      color: Colors.grey[700],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    // Close popup after 2 seconds and navigate
+    Future.delayed(const Duration(seconds: 2), () {
+      Navigator.of(context).pop(); // close popup
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => DashboardScreen()),
+      );
+    });
+  }
+
+
 
 
 

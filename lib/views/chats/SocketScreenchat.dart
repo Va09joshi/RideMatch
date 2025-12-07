@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:ridematch/services/API.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:http/http.dart' as http;
 
@@ -23,8 +24,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   List<Map<String, dynamic>> messages = [];
-  String receiverName = "";
-  String receiverAvatar = "https://i.pravatar.cc/150?img=3"; // default avatar
+  String receiverName = "Person";
+  String receiverAvatar = "https://i.pravatar.cc/150?img=3";
 
   @override
   void initState() {
@@ -34,9 +35,10 @@ class _ChatScreenState extends State<ChatScreen> {
     fetchReceiverInfo();
   }
 
+  // ---------------------- SOCKET SETUP ------------------------
   void connectSocket() {
     socket = IO.io(
-      'http://192.168.29.206:5000',
+      '$baseurl',
       IO.OptionBuilder().setTransports(['websocket']).disableAutoConnect().build(),
     );
 
@@ -49,53 +51,73 @@ class _ChatScreenState extends State<ChatScreen> {
 
     socket.on('receiveMessage', (data) {
       if (!mounted) return;
+
       setState(() {
         messages.add({
           'senderId': data['senderId'],
+          'senderName': data['senderName'] ?? "Unknown",
+          'receiverName': data['receiverName'] ?? "",
           'message': data['message'],
           'timestamp': DateTime.now().toString(),
         });
       });
+
       _scrollToBottom();
     });
   }
 
+  // ---------------------- FETCH CHAT HISTORY ------------------------
   Future<void> fetchMessages() async {
-    final url = Uri.parse(
-        'http://192.168.29.206:5000/api/chat/${widget.senderId}/${widget.receiverId}');
+    final url = Uri.parse('$baseurl/api/chat/${widget.senderId}/${widget.receiverId}');
     final res = await http.get(url);
+
     if (res.statusCode == 200) {
       final List data = jsonDecode(res.body);
+
       setState(() {
-        messages = data
-            .map((e) => {
+        messages = data.map((e) => {
           'senderId': e['senderId'],
+          'senderName': e['senderName'] ?? "Unknown",
+          'receiverName': e['receiverName'] ?? "",
           'message': e['message'],
           'timestamp': e['createdAt'] ?? e['timestamp'],
-        })
-            .toList();
+        }).toList();
       });
+
       _scrollToBottom();
     }
   }
 
+  // ---------------------- FETCH RECEIVER INFO ------------------------
   Future<void> fetchReceiverInfo() async {
-    final url =
-    Uri.parse('http://192.168.29.206:5000/api/users/${widget.receiverId}');
+    final url = Uri.parse('$baseurl/api/users/${widget.receiverId}');
     final res = await http.get(url);
+
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body);
+      print("🔍 USER RESPONSE: ${res.body}");
+
       setState(() {
-        receiverName = data['name'] ?? widget.receiverId;
-        receiverAvatar = data['avatar'] ?? "https://i.pravatar.cc/150?img=3";
+        receiverName = data['name']
+            ?? data['username']
+            ?? data['fullName']
+            ?? data['userFullName']
+            ?? data['profile']?['name']
+            ?? widget.receiverId;
+
+        receiverAvatar = data['avatar']
+            ?? data['profilePic']
+            ?? "https://i.pravatar.cc/150?img=3";
       });
+
     } else {
       setState(() {
-        receiverName = widget.receiverId;
+        receiverName = receiverName;
       });
     }
   }
 
+  // ---------------------- SEND MESSAGE ------------------------
   void sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
@@ -106,9 +128,12 @@ class _ChatScreenState extends State<ChatScreen> {
       'message': text,
     });
 
+    // Add locally
     setState(() {
       messages.add({
         'senderId': widget.senderId,
+        'senderName': "You", // ✔ FIXED (shows your name)
+        'receiverName': receiverName,
         'message': text,
         'timestamp': DateTime.now().toString(),
       });
@@ -118,6 +143,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
   }
 
+  // ---------------------- SCROLL BOTTOM ------------------------
   void _scrollToBottom() {
     Future.delayed(const Duration(milliseconds: 300), () {
       if (_scrollController.hasClients) {
@@ -130,18 +156,19 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  // ---------------------- BUILD MESSAGE BUBBLE ------------------------
   Widget buildMessage(Map<String, dynamic> msg, bool isMe) {
     final time = DateTime.parse(msg['timestamp']).toLocal();
     final formattedTime =
         "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
+
+    final senderName = msg['senderName'] ?? (isMe ? "You" : "Unknown");
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        constraints:
-        BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
           color: isMe ? const Color(0xff113F67) : Colors.grey.shade200,
           borderRadius: BorderRadius.only(
@@ -150,18 +177,19 @@ class _ChatScreenState extends State<ChatScreen> {
             bottomLeft: Radius.circular(isMe ? 16 : 0),
             bottomRight: Radius.circular(isMe ? 0 : 16),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black12,
-              blurRadius: 3,
-              offset: const Offset(1, 2),
-            ),
-          ],
         ),
         child: Column(
-          crossAxisAlignment:
-          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
+            Text(
+              senderName,
+              style: GoogleFonts.dmSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isMe ? Colors.white70 : Colors.black54,
+              ),
+            ),
+            const SizedBox(height: 3),
             Text(
               msg['message'],
               style: GoogleFonts.dmSans(
@@ -183,6 +211,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  // ---------------------- UI ------------------------
   @override
   void dispose() {
     socket.disconnect();
@@ -205,9 +234,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         title: Row(
           children: [
-            CircleAvatar(
-              backgroundImage: NetworkImage(receiverAvatar),
-            ),
+            CircleAvatar(backgroundImage: NetworkImage(receiverAvatar)),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -240,9 +267,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
               ),
-              const SizedBox(height: 70), // leave space for floating input
+              const SizedBox(height: 70),
             ],
           ),
+
           Positioned(
             bottom: 12,
             left: 12,
@@ -266,7 +294,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: TextField(
                       controller: _controller,
                       style: GoogleFonts.dmSans(fontSize: 15),
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         hintText: 'Type a message...',
                         border: InputBorder.none,
                       ),
